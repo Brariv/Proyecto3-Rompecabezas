@@ -23,6 +23,8 @@
 from collections import deque
 from neo4j import GraphDatabase
 
+RECIPROCAL = {1: 5, 2: 6, 3: 7, 4: 8, 5: 1, 6: 2, 7: 3, 8: 4}
+
 class PuzzleGraph:
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -39,7 +41,7 @@ class PuzzleGraph:
             session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})
                 MERGE (p)-[:HAS]->(piece:Piece {index: $piece_index})
-                SET piece.section = $section, piece.description = $description
+                SET piece.section = $section, piece.description = $description, piece.missing = false
             """, puzzle_name=puzzle_name, piece_index=piece_index, section=section, description=description)
 
     def connect_pieces(self, puzzle_name, piece_index1, piece_index2, direction):
@@ -50,25 +52,26 @@ class PuzzleGraph:
                 SET r.direction = $direction
             """, puzzle_name=puzzle_name, piece_index1=piece_index1, piece_index2=piece_index2, direction=direction)
 
-    def get_puzzles(self):
-        with self.driver.session() as session:
-            result = session.run("MATCH (p:Puzzle) RETURN id(p) AS id")
-            return [record["id"] for record in result]
 
-    def set_missing_piece(self, puzzle_name, piece_index):
+    def get_puzzles(self):
+        """Retorna nombre, total de piezas y número de secciones de cada puzzle."""
         with self.driver.session() as session:
-            # toggle missing: if true -> false, if false or null -> true
-            session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece {index: $piece_index})
-                SET piece.missing = NOT(coalesce(piece.missing, false))
-            """, puzzle_name=puzzle_name, piece_index=piece_index)
+            result = session.run("""
+                MATCH (pz:Puzzle)-[:HAS]->(pc:Piece)
+                WITH pz, collect(DISTINCT pc.section) AS secs
+                RETURN pz.name        AS name,
+                       pz.num_pieces  AS total_pieces,
+                       size(secs)     AS num_sections
+                ORDER BY pz.name
+            """)
+            return [dict(r) for r in result]
 
     def get_puzzle_graph(self, puzzle_name):
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
                 OPTIONAL MATCH (piece)-[r:CONNECTED_TO]->(connected_piece:Piece)
-                RETURN piece.id AS piece_id, piece.section AS section, r.direction AS direction, connected_piece.id AS connected_piece_id, piece.description AS description, piece.missing AS missing
+                RETURN piece.index AS piece_id, piece.section AS section, r.direction AS direction, connected_piece.index AS connected_piece_id, piece.description AS description, piece.missing AS missing
             """, puzzle_name=puzzle_name)
             return [record.data() for record in result]
 
@@ -76,7 +79,7 @@ class PuzzleGraph:
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece {index: $piece_index})
-                RETURN piece.id AS piece_id, piece.section AS section, piece.description AS description, piece.missing AS missing
+                RETURN piece.index AS piece_id, piece.section AS section, piece.description AS description, piece.missing AS missing
             """, puzzle_name=puzzle_name, piece_index=piece_index)
             return [record.data() for record in result]
         
@@ -84,49 +87,14 @@ class PuzzleGraph:
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece {index: $piece_index})
-                OPTIONAL MATCH (piece)-[r:CONNECTED_TO]->(connected_piece:Piece)
-                RETURN connected_piece.id AS connected_piece_id, connected_piece.section AS section, r.direction AS direction, connected_piece.description AS description, connected_piece.missing AS missing
+                OPTIONAL MATCH (piece)-[r:CONNECTED_TO]-(connected_piece:Piece)
+                RETURN connected_piece.index AS connected_piece_id,
+                       connected_piece.section     AS section,
+                       CASE WHEN startNode(r) = piece THEN r.direction
+                            ELSE ((r.direction - 1 + 4) % 8) + 1 END AS direction,
+                       connected_piece.description AS description,
+                       connected_piece.missing     AS missing
             """, puzzle_name=puzzle_name, piece_index=piece_index)
-            return [record.data() for record in result]
-        
-    def list_missing_pieces(self, puzzle_name):
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
-                WHERE piece.missing = true
-                RETURN piece.id AS piece_id, piece.section AS section, piece.description AS description
-            """, puzzle_name=puzzle_name)
-            return [record.data() for record in result]
-    
-    def set_all_pieces_not_missing(self, puzzle_name):
-        with self.driver.session() as session:
-            session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
-                SET piece.missing = false
-            """, puzzle_name=puzzle_name)
-
-    def reset_all_missing(self):
-        with self.driver.session() as session:
-            session.run("MATCH (piece:Piece) SET piece.missing = false")
-
-    def mark_missing_pieces(self, puzzle_name, indexes):
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
-                WHERE piece.index IN $indexes
-                SET piece.missing = true
-                RETURN piece.index AS marked, piece.description AS description
-            """, puzzle_name=puzzle_name, indexes=indexes)
-            return [record.data() for record in result]
-
-    def get_available_pieces(self, puzzle_name):
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
-                WHERE NOT piece.missing
-                RETURN piece.index AS index, piece.section AS section, piece.description AS description
-                ORDER BY piece.section, piece.index
-            """, puzzle_name=puzzle_name)
             return [record.data() for record in result]
 
     def get_puzzle_pieces_by_section(self, puzzle_name):
@@ -144,7 +112,67 @@ class PuzzleGraph:
                 sections[sec].append(record.data())
             return sections
 
+    def reset_all_missing(self):
+        """Limpia is_missing en TODAS las piezas (reset al inicio de sesión)."""
+        with self.driver.session() as session:
+            session.run("MATCH (piece:Piece) SET piece.missing = false")
+
+    def set_all_pieces_not_missing(self, puzzle_name):
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
+                SET piece.missing = false
+            """, puzzle_name=puzzle_name)
+
+    def set_missing_piece(self, puzzle_name, piece_index):
+        """Toggle missing de una pieza."""
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece {index: $piece_index})
+                SET piece.missing = NOT(coalesce(piece.missing, false))
+            """, puzzle_name=puzzle_name, piece_index=piece_index)
+
+    def mark_missing_pieces(self, puzzle_name, indexes):
+        """Marca una lista de piezas como faltantes y retorna las marcadas."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
+                WHERE piece.index IN $indexes
+                SET piece.missing = true
+                RETURN piece.index AS marked, piece.description AS description
+                ORDER BY piece.index
+            """, puzzle_name=puzzle_name, indexes=indexes)
+            return [record.data() for record in result]
+
+    def list_missing_pieces(self, puzzle_name):
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
+                WHERE piece.missing = true
+                RETURN piece.index AS piece_id, piece.section AS section,
+                       piece.description AS description
+                ORDER BY piece.index
+            """, puzzle_name=puzzle_name)
+            return [record.data() for record in result]
+
+    def get_available_pieces(self, puzzle_name):
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
+                WHERE NOT piece.missing
+                RETURN piece.index AS index, piece.section AS section,
+                       piece.description AS description
+                ORDER BY piece.section, piece.index
+            """, puzzle_name=puzzle_name)
+            return [record.data() for record in result]
+
+
     def get_assembly_sequence(self, puzzle_name, start_index):
+        """
+        BFS desde start_index.
+        - Atraviesa piezas faltantes: las reporta como HUECO y sigue explorando.
+        - Orden de secciones: sección inicial → superiores (asc) → inferiores (desc).
+        """
         with self.driver.session() as session:
             pieces_result = session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
@@ -190,11 +218,14 @@ class PuzzleGraph:
                     continue
                 visited.add(idx)
                 piece = pieces[idx]
+
+                RECIPROCAL = {1: 5, 2: 6, 3: 7, 4: 8, 5: 1, 6: 2, 7: 3, 8: 4}
+
                 connects_with = [
                     {
                         "neighbor_index": nb,
                         "neighbor_description": pieces[nb]["description"],
-                        "direction": direction,
+                        "direction": RECIPROCAL[direction],
                     }
                     for nb, direction in adjacency[idx]
                     if nb in visited
