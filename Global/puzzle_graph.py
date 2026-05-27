@@ -67,6 +67,6 @@ class PuzzleGraph:
             result = session.run("""
                 MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
                 OPTIONAL MATCH (piece)-[r:CONNECTED_TO]->(connected_piece:Piece)
-                RETURN piece.id AS piece_id, piece.section AS section, r.direction AS direction, connected_piece.id AS connected_piece_id, piece.missing AS missing
+                RETURN piece.id AS piece_id, piece.section AS section, r.direction AS direction, connected_piece.id AS connected_piece_id, piece.description AS description, piece.missing AS missing
             """, puzzle_name=puzzle_name)
             return [record.data() for record in result]
