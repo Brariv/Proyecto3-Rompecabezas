@@ -156,12 +156,21 @@ class PuzzleGraph:
             return [record.data() for record in result]
 
     def get_available_pieces(self, puzzle_name):
+        """
+        Retorna piezas no-faltantes con la lista de sus vecinos faltantes
+        (campo 'missing_neighbors'), para mostrar contexto espacial al
+        elegir pieza inicial.
+        """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (p:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
+                MATCH (:Puzzle {name: $puzzle_name})-[:HAS]->(piece:Piece)
                 WHERE NOT piece.missing
-                RETURN piece.index AS index, piece.section AS section,
-                       piece.description AS description
+                OPTIONAL MATCH (piece)-[:CONNECTED_TO]-(neighbor:Piece)
+                WHERE neighbor.missing = true
+                RETURN piece.index       AS index,
+                       piece.section     AS section,
+                       piece.description AS description,
+                       collect(DISTINCT neighbor.index) AS missing_neighbors
                 ORDER BY piece.section, piece.index
             """, puzzle_name=puzzle_name)
             return [record.data() for record in result]
@@ -218,8 +227,6 @@ class PuzzleGraph:
                     continue
                 visited.add(idx)
                 piece = pieces[idx]
-
-                RECIPROCAL = {1: 5, 2: 6, 3: 7, 4: 8, 5: 1, 6: 2, 7: 3, 8: 4}
 
                 connects_with = [
                     {

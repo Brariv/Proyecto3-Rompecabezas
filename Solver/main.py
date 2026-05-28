@@ -10,22 +10,22 @@ DIR_NAMES = {
     5: "Sur",   6: "Suroeste", 7: "Oeste", 8: "Noroeste",
 }
 
-SEP       = "=" * 50
-SEP_LIGHT = "-" * 50
+SEPARATOR_HEAVY = "=" * 50
+SEPARATOR_LIGHT = "-" * 50
 
 def header(title: str):
-    print(f"\n{SEP}")
+    print(f"\n{SEPARATOR_HEAVY}")
     print(f"  {title}")
-    print(SEP)
+    print(SEPARATOR_HEAVY)
 
 def ask(prompt: str) -> str:
     return input(f"\n{prompt}").strip()
 
 
 def ask_int(prompt: str):
-    raw = ask(prompt)
+    user_input = ask(prompt)
     try:
-        return int(raw)
+        return int(user_input)
     except ValueError:
         return None
 
@@ -37,22 +37,22 @@ def select_puzzle(graph) -> str | None:
         return None
 
     print("\nRompecabezas disponibles:")
-    for i, pz in enumerate(puzzles, 1):
-        if pz["num_sections"] > 1:
-            print(f"  {i}) {pz['name']:<22} ({pz['total_pieces']} piezas, {pz['num_sections']} secciones)")
+    for option_number, puzzle in enumerate(puzzles, 1):
+        if puzzle["num_sections"] > 1:
+            print(f"  {option_number}) {puzzle['name']:<22} ({puzzle['total_pieces']} piezas, {puzzle['num_sections']} secciones)")
         else:
-            print(f"  {i}) {pz['name']:<22} ({pz['total_pieces']} piezas)")
+            print(f"  {option_number}) {puzzle['name']:<22} ({puzzle['total_pieces']} piezas)")
 
     while True:
-        raw = ask(f"Seleccione un rompecabezas (1-{len(puzzles)}) o escriba el nombre: ")
-        if raw.isdigit():
-            idx = int(raw) - 1
-            if 0 <= idx < len(puzzles):
-                return puzzles[idx]["name"]
+        user_input = ask(f"Seleccione un rompecabezas (1-{len(puzzles)}) o escriba el nombre: ")
+        if user_input.isdigit():
+            selected_index = int(user_input) - 1
+            if 0 <= selected_index < len(puzzles):
+                return puzzles[selected_index]["name"]
         else:
-            match = [pz for pz in puzzles if pz["name"].lower() == raw.lower()]
-            if match:
-                return match[0]["name"]
+            name_matches = [puzzle for puzzle in puzzles if puzzle["name"].lower() == user_input.lower()]
+            if name_matches:
+                return name_matches[0]["name"]
         print(f"  Entrada inválida. Ingrese un número del 1 al {len(puzzles)} o el nombre exacto.")
 
 #Mostrar info del rompecabezas
@@ -61,137 +61,159 @@ def show_puzzle_info(sections: dict, puzzle_name: str, total_pieces: int):
     print("\n[NOTA] Se asume que las secciones van ordenadas de izquierda a derecha.")
 
     if len(sections) == 1:
-        indices = [p["index"] for p in list(sections.values())[0]]
-        print(f"Piezas disponibles: {indices}")
+        piece_indices = [piece["index"] for piece in list(sections.values())[0]]
+        print(f"Piezas disponibles: {piece_indices}")
     else:
-        for sec_num in sorted(sections.keys()):
-            indices = [p["index"] for p in sections[sec_num]]
-            print(f"  Sección {sec_num}: {indices}")
+        for section_number in sorted(sections.keys()):
+            piece_indices = [piece["index"] for piece in sections[section_number]]
+            print(f"  Sección {section_number}: {piece_indices}")
 
 #Marcar piezas faltantes
 def handle_missing_pieces(graph, puzzle_name: str, all_indices: set) -> list:
-    resp = ask("¿Hay piezas faltantes? (s/n): ").lower()
-    if resp != "s":
+    response = ask("¿Hay piezas faltantes? (s/n): ").lower()
+    if response != "s":
         return []
 
     while True:
-        raw = ask(
+        user_input = ask(
             "Ingrese los índices de las piezas faltantes separados por coma\n"
             "(ej. 3,7,9) o presione Enter para omitir:\n> "
         )
-        if not raw:
+        if not user_input:
             return []
 
-        parts = [p.strip() for p in raw.split(",")]
-        parsed = []
-        error = False
-        for part in parts:
-            if not part.isdigit():
-                print(f"  Entrada inválida: '{part}'. Ingrese solo números separados por coma.")
-                error = True
+        index_strings = [part.strip() for part in user_input.split(",")]
+        parsed_indices = []
+        has_error = False
+        for index_str in index_strings:
+            if not index_str.isdigit():
+                print(f"  Entrada inválida: '{index_str}'. Ingrese solo números separados por coma.")
+                has_error = True
                 break
-            n = int(part)
-            if n not in all_indices:
-                print(f"  La pieza {n} no existe en el rompecabezas '{puzzle_name}'.")
-                error = True
+            piece_index = int(index_str)
+            if piece_index not in all_indices:
+                print(f"  La pieza {piece_index} no existe en el rompecabezas '{puzzle_name}'.")
+                has_error = True
                 break
-            parsed.append(n)
+            parsed_indices.append(piece_index)
 
-        if error:
+        if has_error:
             continue
 
-        marked = graph.mark_missing_pieces(puzzle_name, parsed)
+        marked_pieces = graph.mark_missing_pieces(puzzle_name, parsed_indices)
         print("\nPiezas marcadas como faltantes:")
-        for m in marked:
-            print(f"  - Pieza {m['marked']}: {m['description']}")
-        return parsed
+        for marked_piece in marked_pieces:
+            print(f"  - Pieza {marked_piece['marked']}: {marked_piece['description']}")
+        return parsed_indices
 
 #Selección de pieza inicial
 def select_start_piece(graph, puzzle_name: str, all_indices: set, missing_set: set):
-    available = graph.get_available_pieces(puzzle_name)
+    available_pieces = graph.get_available_pieces(puzzle_name)
 
-    if not available:
+    if not available_pieces:
         print("  No hay piezas disponibles para armar.")
         return None
 
     print("\nPiezas disponibles para iniciar el armado:")
-    for p in available:
-        print(f"  {p['index']:>3}) {p['description']}")
+    for piece in available_pieces:
+        missing_neighbors = sorted(piece.get("missing_neighbors") or [])
+        if not missing_neighbors:
+            missing_suffix = ""
+        elif len(missing_neighbors) == 1:
+            missing_suffix = f"  [pieza {missing_neighbors[0]} está faltante]"
+        else:
+            neighbors_joined = ", ".join(str(neighbor_index) for neighbor_index in missing_neighbors)
+            missing_suffix = f"  [piezas {neighbors_joined} están faltantes]"
+        print(f"  {piece['index']:>3}) {piece['description']}{missing_suffix}")
 
-    if missing_set:
-        print(f"\n  (Piezas faltantes: {sorted(missing_set)})")
-
-    available_indices = {p["index"] for p in available}
+    available_indices = {piece["index"] for piece in available_pieces}
 
     while True:
-        val = ask_int("Ingrese el índice de la pieza por la que desea comenzar: ")
-        if val is None:
+        chosen_index = ask_int("Ingrese el índice de la pieza por la que desea comenzar: ")
+        if chosen_index is None:
             print("  Entrada inválida. Ingrese un número.")
             continue
-        if val in missing_set:
-            print(f"  La pieza {val} está marcada como faltante. Elija otra pieza inicial.")
+        if chosen_index in missing_set:
+            print(f"  La pieza {chosen_index} está marcada como faltante. Elija otra pieza inicial.")
             continue
-        if val not in all_indices:
-            print(f"  La pieza {val} no existe en el rompecabezas '{puzzle_name}'.")
+        if chosen_index not in all_indices:
+            print(f"  La pieza {chosen_index} no existe en el rompecabezas '{puzzle_name}'.")
             continue
-        if val not in available_indices:
-            print(f"  La pieza {val} no está disponible.")
+        if chosen_index not in available_indices:
+            print(f"  La pieza {chosen_index} no está disponible.")
             continue
-        return val
+        return chosen_index
 
 #Imprimir pasos
 def print_solution(steps: list, puzzle_name: str):
     header(f"Secuencia de armado: {puzzle_name}")
 
-    placed_count    = sum(1 for s in steps if not s["is_missing"])
-    missing_indices = [s["piece_index"] for s in steps if s["is_missing"]]
+    placed_count    = sum(1 for step in steps if not step["is_missing"])
+    missing_indices = [step["piece_index"] for step in steps if step["is_missing"]]
 
+    previous_section = None
     for step in steps:
-        idx     = step["piece_index"]
-        desc    = step["description"]
-        missing = step["is_missing"]
-        conns   = step["connects_with"]
-        num     = step["step"]
+        piece_index   = step["piece_index"]
+        description   = step["description"]
+        is_missing    = step["is_missing"]
+        connections   = step["connects_with"]
+        step_number   = step["step"]
+        section       = step["section"]
 
-        if missing:
-            print(f"\nPaso {num}: [HUECO] La pieza {idx} ({desc}) está faltante.")
-            if conns:
-                for c in conns:
-                    dir_name = DIR_NAMES.get(c["direction"], str(c["direction"]))
-                    print(f"        Si estuviera, se ensamblaría al {dir_name} de pieza {c['neighbor_index']} ({c['neighbor_description']}).")
-        else:
-            if not conns:
-                print(f"\nPaso {num}: Colocar pieza {idx} ({desc}). Pieza inicial.")
+        # Etiqueta para raíces de BFS (piezas sin conexiones previas)
+        if not connections:
+            if step_number == 1:
+                root_label = "Pieza inicial elegida por el usuario."
+            elif section != previous_section:
+                root_label = f"Inicio de la Sección {section}."
             else:
-                conn_parts = " y ".join(
-                    f"al {DIR_NAMES.get(c['direction'], c['direction'])} de pieza {c['neighbor_index']} ({c['neighbor_description']})"
-                    for c in conns
-                )
-                print(f"\nPaso {num}: Colocar pieza {idx} ({desc}).")
-                print(f"        Se ensambla {conn_parts}.")
+                root_label = f"Inicio de un componente nuevo dentro de la Sección {section}."
+        else:
+            root_label = None
 
-    print(f"\n{SEP_LIGHT}")
+        if is_missing:
+            print(f"\nPaso {step_number}: [HUECO] La pieza {piece_index} ({description}) está faltante.")
+            if root_label:
+                print(f"        {root_label}")
+            if connections:
+                for connection in connections:
+                    direction_name = DIR_NAMES.get(connection["direction"], str(connection["direction"]))
+                    print(f"        Si estuviera, se ensamblaría al {direction_name} de pieza {connection['neighbor_index']} ({connection['neighbor_description']}).")
+        else:
+            if not connections:
+                print(f"\nPaso {step_number}: Colocar pieza {piece_index} ({description}). {root_label}")
+            else:
+                connection_parts = " y ".join(
+                    f"al {DIR_NAMES.get(connection['direction'], connection['direction'])} de pieza {connection['neighbor_index']} ({connection['neighbor_description']})"
+                    for connection in connections
+                )
+                print(f"\nPaso {step_number}: Colocar pieza {piece_index} ({description}).")
+                print(f"        Se ensambla {connection_parts}.")
+
+        previous_section = section
+
+    print(f"\n{SEPARATOR_LIGHT}")
     print("=== Fin del armado ===")
     print(f"Piezas ensambladas: {placed_count} de {len(steps)}")
     if missing_indices:
         print(f"Piezas faltantes: {len(missing_indices)} (índices {missing_indices})")
     else:
         print("¡Rompecabezas completo!")
-    print(SEP_LIGHT)
+    print(SEPARATOR_LIGHT)
 
 
 #Main
 def main():
     load_dotenv()
-    uri      = os.getenv("NEO4J_URI")
-    user     = os.getenv("NEO4J_USERNAME")
-    password = os.getenv("NEO4J_PASSWORD")
+    neo4j_uri      = os.getenv("NEO4J_URI")
+    neo4j_username = os.getenv("NEO4J_USERNAME")
+    neo4j_password = os.getenv("NEO4J_PASSWORD")
 
     try:
-        graph = PuzzleGraph(uri, user, password)
+        graph = PuzzleGraph(neo4j_uri, neo4j_username, neo4j_password)
         graph.driver.verify_connectivity()
-    except Exception as e:
-        print(f"No se pudo conectar a la base de datos. Verifique el servicio.\n{e}")
+    except Exception as connection_error:
+        print(f"No se pudo conectar a la base de datos. Verifique el servicio.\n{connection_error}")
         return
 
     header("Sistema de Armado de Rompecabezas")
@@ -207,13 +229,13 @@ def main():
 
         # 3. Info del rompecabezas
         sections   = graph.get_puzzle_pieces_by_section(puzzle_name)
-        all_pieces = [p for sec in sections.values() for p in sec]
+        all_pieces = [piece for section_pieces in sections.values() for piece in section_pieces]
         if not all_pieces:
             print(f"  El rompecabezas '{puzzle_name}' no tiene piezas cargadas.")
             continue
 
-        total_pieces = sum(len(v) for v in sections.values())
-        all_indices  = {p["index"] for p in all_pieces}
+        total_pieces = sum(len(section_pieces) for section_pieces in sections.values())
+        all_indices  = {piece["index"] for piece in all_pieces}
 
         show_puzzle_info(sections, puzzle_name, total_pieces)
 
@@ -236,13 +258,12 @@ def main():
             print_solution(steps, puzzle_name)
 
         # 7. Continuar o salir
-        again = ask("¿Desea armar otro rompecabezas? (s/n): ").lower()
-        if again != "s":
+        continue_response = ask("¿Desea armar otro rompecabezas? (s/n): ").lower()
+        if continue_response != "s":
             break
 
     graph.close()
     print("\nHasta luego.\n")
 
 
-if __name__ == "__main__":
-    main()
+main()
