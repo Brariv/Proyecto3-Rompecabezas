@@ -14,6 +14,20 @@ def drop_all():
     with graph.driver.session() as session:
         session.run("MATCH (n) DETACH DELETE n")
 
+def drop_puzzle(puzzle_name):
+    load_dotenv()
+    uri = os.getenv("NEO4J_URI")
+    user = os.getenv("NEO4J_USERNAME")
+    password = os.getenv("NEO4J_PASSWORD")
+    graph = PuzzleGraph(uri, user, password)
+    with graph.driver.session() as session:
+        session.run("MATCH (p:Puzzle {name: $name}) DETACH DELETE p", name=puzzle_name)
 
-drop_all()  
-print("Todas las entidades han sido eliminadas de la base de datos.")
+
+name = input("Ingrese el nombre del rompecabezas que desea eliminar: ")
+if name == "*":
+    drop_all()
+    print("Todas las entidades han sido eliminadas de la base de datos.")
+else:
+    drop_puzzle(name)
+    print(f"El rompecabezas '{name}' ha sido eliminado de la base de datos.")
